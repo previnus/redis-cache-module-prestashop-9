@@ -1,0 +1,97 @@
+/**
+* 2007-2023 PrestaShop
+*
+* NOTICE OF LICENSE
+*
+* This source file is subject to the Academic Free License (AFL 3.0)
+* that is bundled with this package in the file LICENSE.txt.
+* It is also available through the world-wide-web at this URL:
+* http://opensource.org/licenses/afl-3.0.php
+* If you did not receive a copy of the license and are unable to
+* obtain it through the world-wide-web, please send an email
+* to license@prestashop.com so we can send you a copy immediately.
+*
+* DISCLAIMER
+*
+* Do not edit or add to this file if you wish to upgrade PrestaShop to newer
+* versions in the future. If you wish to customize PrestaShop for your
+* needs please refer to http://www.prestashop.com for more information.
+*
+*  @author    PrestaShop SA <contact@prestashop.com>
+*  @copyright 2007-2023 PrestaShop SA
+*  @license   http://opensource.org/licenses/afl-3.0.php  Academic Free License (AFL 3.0)
+*  International Registered Trademark & Property of PrestaShop SA
+*
+* Don't forget to prefix your containers with your own identifier
+* to avoid any conflicts with others containers.
+*/
+
+.flush-redis-cache.loadingb i,
+.btn.test-redis.loadingb{
+    color: transparent!important;
+    position: relative;
+}
+.flush_all_redis_cache_on {
+    margin-top: 10px;
+}
+.flush-redis-cache.loadingb i:before,
+.btn.test-redis.loadingb:before{
+    content: "";
+    position: absolute;
+    border-top: 1.5px solid #999;
+    border-bottom: 1.5px solid #999;
+    border-left: 1.5px solid transparent;
+    border-right: 1.5px solid transparent;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    left: 50%;
+    margin-left: -8px;
+    top: 50%;
+    margin-top: -8px;
+    animation: loading_rediscache 0.5s infinite linear;
+    -webkit-animation: loading_rediscache 0.5s infinite linear;
+}
+.flush-redis-cache.loadingb i svg{
+    opacity: 0!important;
+}
+.btn.test-redis.loadingb,
+:is(body:not(.no-smb-reskin)) .btn-primary.loadingb:active:not([data-id-modal=homepageModal]):not([data-id-modal=categoryModal]):not([data-id-modal=productModal]),
+:is(body:not(.no-smb-reskin)) .btn-primary.loadingb:not([data-id-modal=homepageModal]):not([data-id-modal=categoryModal]):not([data-id-modal=productModal]){
+    color: transparent!important;
+}
+@keyframes loading_rediscache {
+    0% {
+        transform: rotate(0deg);
+        -webkit-transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+        -webkit-transform: rotate(360deg);
+    }
+}
+@-webkit-keyframes loading_rediscache {
+    0% {
+        transform: rotate(0deg);
+        -webkit-transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+        -webkit-transform: rotate(360deg);
+    }
+}
+#flush_all_redis_cache {
+    font-weight: normal;
+    vertical-align: -1px;
+    display: inline-flex;
+    margin-left: 0;
+}
+.test_redis_form_btn .btn {
+    border: 1px solid #ccc;
+    padding: 10px 15px;
+    display: inline-block;
+    min-width: 200px;
+}
+.flush-redis-cache svg {
+    vertical-align: 0;
+}
