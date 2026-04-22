@@ -347,6 +347,7 @@ class Rediscache extends Module
     {
         if (Configuration::get('PS_CACHING_SYSTEM') === 'CacheRedis') {
             Configuration::updateValue('PS_CACHE_ENABLED', 0);
+            Configuration::updateValue('PS_CACHING_SYSTEM', 'CacheFs');
         }
 
         return true;
@@ -473,8 +474,8 @@ class Rediscache extends Module
     {
         $targetPath = $this->getInstalledOverridePath();
 
-        if (file_exists($targetPath)) {
-            @unlink($targetPath);
+        if (file_exists($targetPath) && !unlink($targetPath)) {
+            return false;
         }
 
         return $this->refreshClassIndex();

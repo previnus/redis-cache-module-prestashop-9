@@ -100,10 +100,7 @@ class RCRedisCache extends Cache
         $this->redis = new Client($configs);
 
         try {
-            foreach ($this->redis->keys('*') as $key) {
-                $this->keys[$key] = true;
-            }
-
+            $this->redis->ping();
             $this->setConnected(true);
         } catch (Exception $exception) {
             @file_put_contents(_PS_ROOT_DIR_ . '/var/logs/rediscache.log', '[' . date('Y-m-d H:i:s') . '] ' . $exception->getMessage() . PHP_EOL, FILE_APPEND);
@@ -131,16 +128,17 @@ class RCRedisCache extends Cache
             return false;
         }
 
-        $result = $this->redis->set($key, @json_encode($value));
+        $encoded = json_encode(['v' => $value]);
+        if ($encoded === false) {
+            return false;
+        }
+
+        $result = $this->redis->set($key, $encoded);
 
         if ($ttl > 0) {
             $this->redis->expire($key, (int) $ttl);
         } elseif ((int) $this->life_time > 0) {
             $this->redis->expire($key, (int) $this->life_time);
-        }
-
-        if ($result === false && method_exists($this, 'setAdjustTableCacheSize')) {
-            $this->setAdjustTableCacheSize(true);
         }
 
         return $result;
@@ -154,7 +152,17 @@ class RCRedisCache extends Cache
 
         $result = $this->redis->get($key);
 
-        return $result !== null ? @json_decode($result, true) : false;
+        if ($result === null) {
+            return false;
+        }
+
+        $decoded = json_decode($result, true);
+
+        if (!is_array($decoded) || !array_key_exists('v', $decoded)) {
+            return false;
+        }
+
+        return $decoded['v'];
     }
 
     protected function _exists($key)
@@ -163,7 +171,7 @@ class RCRedisCache extends Cache
             return false;
         }
 
-        return $this->redis->exists($key) !== false;
+        return (int) $this->redis->exists($key) > 0;
     }
 
     protected function _delete($key)
@@ -182,12 +190,13 @@ class RCRedisCache extends Cache
             return true;
         }
 
-        $pattern = str_replace('\\*', '.*', preg_quote($key, '/'));
-        $keys = $this->redis->keys($pattern);
-
-        foreach ($keys as $redisKey) {
-            $this->redis->del($redisKey);
-        }
+        $cursor = '0';
+        do {
+            [$cursor, $foundKeys] = $this->redis->scan($cursor, ['match' => $key, 'count' => 100]);
+            if (!empty($foundKeys)) {
+                $this->redis->del($foundKeys);
+            }
+        } while ($cursor !== '0');
 
         return true;
     }

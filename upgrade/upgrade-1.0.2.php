@@ -30,7 +30,17 @@ if (!defined('_PS_VERSION_')) {
 function upgrade_module_1_0_2($module)
 {
     $prFilepath = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+
+    if (!file_exists($prFilepath)) {
+        return true;
+    }
+
     $parameters = require $prFilepath;
+
+    if (!is_array($parameters) || !isset($parameters['parameters'])) {
+        return true;
+    }
+
     $parameters['parameters']['ps_caching'] = 'CacheRedis';
     $var_export_content = sprintf('<?php return %s;', var_export($parameters, true));
     @file_put_contents($prFilepath, $var_export_content);
