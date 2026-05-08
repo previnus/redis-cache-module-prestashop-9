@@ -36,6 +36,7 @@ class RCRedisCache extends Cache
     protected $password;
     protected $database = 0;
     protected $life_time;
+    protected $socket = '';
 
     protected $blacklist = array(
         'cart',
@@ -79,19 +80,29 @@ class RCRedisCache extends Cache
         $password = Configuration::get(Rediscache::CONFIG_PASSWORD);
         $database = Configuration::get(Rediscache::CONFIG_DATABASE);
         $lifetime = Configuration::get(Rediscache::CONFIG_LIFETIME);
+        $socket = Configuration::get(Rediscache::CONFIG_SOCKET);
 
         $this->ip = $ip !== false ? (string) $ip : '127.0.0.1';
         $this->port = $port !== false ? (string) $port : '6379';
         $this->password = $password !== false ? (string) $password : '';
         $this->database = $database !== false ? (int) $database : 0;
         $this->life_time = Validate::isUnsignedInt($lifetime) && (int) $lifetime > 0 ? (int) $lifetime * 24 * 60 * 60 : null;
+        $this->socket = ($socket !== false && $socket !== '') ? (string) $socket : '';
 
-        $configs = array(
-            'scheme' => 'tcp',
-            'host' => $this->ip,
-            'port' => (int) $this->port,
-            'database' => (int) $this->database,
-        );
+        if ($this->socket !== '') {
+            $configs = array(
+                'scheme' => 'unix',
+                'path' => $this->socket,
+                'database' => (int) $this->database,
+            );
+        } else {
+            $configs = array(
+                'scheme' => 'tcp',
+                'host' => $this->ip,
+                'port' => (int) $this->port,
+                'database' => (int) $this->database,
+            );
+        }
 
         if ($this->password !== '') {
             $configs['password'] = $this->password;
@@ -100,10 +111,7 @@ class RCRedisCache extends Cache
         $this->redis = new Client($configs);
 
         try {
-            foreach ($this->redis->keys('*') as $key) {
-                $this->keys[$key] = true;
-            }
-
+            $this->redis->ping();
             $this->setConnected(true);
         } catch (Exception $exception) {
             @file_put_contents(_PS_ROOT_DIR_ . '/var/logs/rediscache.log', '[' . date('Y-m-d H:i:s') . '] ' . $exception->getMessage() . PHP_EOL, FILE_APPEND);
@@ -131,16 +139,17 @@ class RCRedisCache extends Cache
             return false;
         }
 
-        $result = $this->redis->set($key, @json_encode($value));
+        $encoded = json_encode(['v' => $value]);
+        if ($encoded === false) {
+            return false;
+        }
+
+        $result = $this->redis->set($key, $encoded);
 
         if ($ttl > 0) {
             $this->redis->expire($key, (int) $ttl);
         } elseif ((int) $this->life_time > 0) {
             $this->redis->expire($key, (int) $this->life_time);
-        }
-
-        if ($result === false && method_exists($this, 'setAdjustTableCacheSize')) {
-            $this->setAdjustTableCacheSize(true);
         }
 
         return $result;
@@ -154,7 +163,17 @@ class RCRedisCache extends Cache
 
         $result = $this->redis->get($key);
 
-        return $result !== null ? @json_decode($result, true) : false;
+        if ($result === null) {
+            return false;
+        }
+
+        $decoded = json_decode($result, true);
+
+        if (!is_array($decoded) || !array_key_exists('v', $decoded)) {
+            return false;
+        }
+
+        return $decoded['v'];
     }
 
     protected function _exists($key)
@@ -163,7 +182,7 @@ class RCRedisCache extends Cache
             return false;
         }
 
-        return $this->redis->exists($key) !== false;
+        return (int) $this->redis->exists($key) > 0;
     }
 
     protected function _delete($key)
@@ -182,12 +201,13 @@ class RCRedisCache extends Cache
             return true;
         }
 
-        $pattern = str_replace('\\*', '.*', preg_quote($key, '/'));
-        $keys = $this->redis->keys($pattern);
-
-        foreach ($keys as $redisKey) {
-            $this->redis->del($redisKey);
-        }
+        $cursor = '0';
+        do {
+            [$cursor, $foundKeys] = $this->redis->scan($cursor, ['match' => $key, 'count' => 100]);
+            if (!empty($foundKeys)) {
+                $this->redis->del($foundKeys);
+            }
+        } while ($cursor !== '0');
 
         return true;
     }
@@ -220,18 +240,26 @@ class RCRedisCache extends Cache
         return true;
     }
 
-    public static function ping($ip, $port, $password = null, $database = 0)
+    public static function ping($ip, $port, $password = null, $database = 0, $socket = '')
     {
-        if (!$ip || !$port || !Validate::isUnsignedInt($port) || !Validate::isUnsignedInt($database) || (int) $database < 0 || (int) $database > 15) {
-            return false;
-        }
-
         try {
-            $parameters = array(
-                'host' => $ip,
-                'port' => (int) $port,
-                'database' => (int) $database,
-            );
+            if ($socket !== '') {
+                $parameters = array(
+                    'scheme' => 'unix',
+                    'path' => $socket,
+                    'database' => (int) $database,
+                );
+            } else {
+                if (!$ip || !$port || !Validate::isUnsignedInt($port) || !Validate::isUnsignedInt($database) || (int) $database < 0 || (int) $database > 15) {
+                    return false;
+                }
+
+                $parameters = array(
+                    'host' => $ip,
+                    'port' => (int) $port,
+                    'database' => (int) $database,
+                );
+            }
 
             if ($password !== null && $password !== '') {
                 $parameters['password'] = $password;

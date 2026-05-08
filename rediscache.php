@@ -32,12 +32,13 @@ class Rediscache extends Module
     const CONFIG_PASSWORD = 'REDISCACHE_PASSWORD';
     const CONFIG_DATABASE = 'REDISCACHE_DATABASE';
     const CONFIG_LIFETIME = 'REDISCACHE_LIFETIME';
+    const CONFIG_SOCKET = 'REDISCACHE_SOCKET';
 
     public function __construct()
     {
         $this->name = 'rediscache';
         $this->tab = 'front_office_features';
-        $this->version = '1.1.0';
+        $this->version = '1.2.0';
         $this->author = 'PrestaHero';
         $this->need_instance = 1;
         $this->bootstrap = true;
@@ -103,7 +104,7 @@ class Rediscache extends Module
     protected function renderCompatibilityNotice()
     {
         return $this->displayInformation(
-            $this->l('PrestaShop 9 compatibility mode is active. This module now stores its settings with the PrestaShop Configuration API and installs CacheRedis through the override mechanism instead of writing directly to core files or legacy parameters.php.')
+            $this->l('PrestaShop 9 compatibility mode is active. Settings are stored via the Configuration API and synced to app/config/parameters.php (required for PS9 bootstrap). CacheRedis is installed through the override mechanism.')
         );
     }
 
@@ -132,7 +133,8 @@ class Rediscache extends Module
             $values[self::CONFIG_IP],
             $values[self::CONFIG_PORT],
             $values[self::CONFIG_PASSWORD],
-            $values[self::CONFIG_DATABASE]
+            $values[self::CONFIG_DATABASE],
+            $values[self::CONFIG_SOCKET]
         );
 
         if ($result === 'pong') {
@@ -200,16 +202,22 @@ class Rediscache extends Module
                     ),
                     array(
                         'type' => 'text',
+                        'label' => $this->l('Unix socket path'),
+                        'name' => self::CONFIG_SOCKET,
+                        'desc' => $this->l('Optional but recommended for best performance. Example: /var/run/redis/redis.sock — when set, IP and Port are ignored.'),
+                    ),
+                    array(
+                        'type' => 'text',
                         'label' => $this->l('IP address or domain'),
                         'name' => self::CONFIG_IP,
-                        'required' => true,
+                        'desc' => $this->l('Required when no Unix socket is set.'),
                     ),
                     array(
                         'type' => 'text',
                         'label' => $this->l('Port'),
                         'name' => self::CONFIG_PORT,
-                        'required' => true,
                         'class' => 'fixed-width-sm',
+                        'desc' => $this->l('Required when no Unix socket is set.'),
                     ),
                     array(
                         'type' => 'password',
@@ -249,6 +257,16 @@ class Rediscache extends Module
 
         $isOverrideInstalled = file_exists($this->getInstalledOverridePath());
         $redisLoaded = class_exists('Predis\\Client');
+        $parametersFilepath = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+        $parametersWritable = file_exists($parametersFilepath) && is_writable($parametersFilepath);
+        $parametersSynced = false;
+        if (file_exists($parametersFilepath)) {
+            $params = require $parametersFilepath;
+            $parametersSynced = is_array($params)
+                && isset($params['parameters']['ps_caching'])
+                && $params['parameters']['ps_caching'] === 'CacheRedis'
+                && !empty($params['parameters']['ps_cache_enable']);
+        }
 
         $html = '<div class="panel">';
         $html .= '<h3><i class="icon-wrench"></i> ' . $this->l('Tools') . '</h3>';
@@ -256,6 +274,8 @@ class Rediscache extends Module
         $html .= '<ul>';
         $html .= '<li>' . sprintf($this->l('Predis library available: %s'), $redisLoaded ? $this->l('Yes') : $this->l('No')) . '</li>';
         $html .= '<li>' . sprintf($this->l('CacheRedis override installed: %s'), $isOverrideInstalled ? $this->l('Yes') : $this->l('No')) . '</li>';
+        $html .= '<li>' . sprintf($this->l('parameters.php writable: %s'), $parametersWritable ? $this->l('Yes') : $this->l('No — cache may not activate on PS9 boot')) . '</li>';
+        $html .= '<li>' . sprintf($this->l('parameters.php synced with CacheRedis: %s'), $parametersSynced ? $this->l('Yes') : $this->l('No — save settings with caching enabled to sync')) . '</li>';
         $html .= '</ul>';
         $html .= '<form method="post" action="' . htmlspecialchars($configurationUrl, ENT_QUOTES, 'UTF-8') . '">';
         $html .= '<button class="btn btn-default" type="submit" name="submitTestRediscacheConnection"><i class="icon-plug"></i> ' . $this->l('Test Redis') . '</button> ';
@@ -270,6 +290,7 @@ class Rediscache extends Module
     {
         return array(
             self::CONFIG_ENABLE => (int) Tools::getValue(self::CONFIG_ENABLE),
+            self::CONFIG_SOCKET => trim((string) Tools::getValue(self::CONFIG_SOCKET)),
             self::CONFIG_IP => trim((string) Tools::getValue(self::CONFIG_IP)),
             self::CONFIG_PORT => trim((string) Tools::getValue(self::CONFIG_PORT)),
             self::CONFIG_PASSWORD => (string) Tools::getValue(self::CONFIG_PASSWORD),
@@ -282,6 +303,7 @@ class Rediscache extends Module
     {
         $cacheEnabled = Configuration::get('PS_CACHE_ENABLED');
         $cachingSystem = Configuration::get('PS_CACHING_SYSTEM');
+        $socket = Configuration::get(self::CONFIG_SOCKET);
         $ip = Configuration::get(self::CONFIG_IP);
         $port = Configuration::get(self::CONFIG_PORT);
         $password = Configuration::get(self::CONFIG_PASSWORD);
@@ -290,6 +312,7 @@ class Rediscache extends Module
 
         return array(
             self::CONFIG_ENABLE => (int) ($cacheEnabled && $cachingSystem === 'CacheRedis'),
+            self::CONFIG_SOCKET => $socket !== false ? (string) $socket : '',
             self::CONFIG_IP => $ip !== false ? (string) $ip : '127.0.0.1',
             self::CONFIG_PORT => $port !== false ? (string) $port : '6379',
             self::CONFIG_PASSWORD => $password !== false ? (string) $password : '',
@@ -301,17 +324,24 @@ class Rediscache extends Module
     protected function validateConfigurationValues(array $values)
     {
         $errors = array();
+        $hasSocket = $values[self::CONFIG_SOCKET] !== '';
 
-        if ($values[self::CONFIG_IP] === '') {
-            $errors[] = $this->l('IP address or domain is required.');
-        } elseif (!(filter_var($values[self::CONFIG_IP], FILTER_VALIDATE_IP) || filter_var($values[self::CONFIG_IP], FILTER_VALIDATE_DOMAIN))) {
-            $errors[] = $this->l('IP address or domain is invalid.');
-        }
+        if ($hasSocket) {
+            if ($values[self::CONFIG_SOCKET][0] !== '/') {
+                $errors[] = $this->l('Unix socket path must be an absolute path starting with /.');
+            }
+        } else {
+            if ($values[self::CONFIG_IP] === '') {
+                $errors[] = $this->l('IP address or domain is required when no Unix socket path is set.');
+            } elseif (!(filter_var($values[self::CONFIG_IP], FILTER_VALIDATE_IP) || filter_var($values[self::CONFIG_IP], FILTER_VALIDATE_DOMAIN))) {
+                $errors[] = $this->l('IP address or domain is invalid.');
+            }
 
-        if ($values[self::CONFIG_PORT] === '') {
-            $errors[] = $this->l('Port is required.');
-        } elseif (!Validate::isUnsignedInt($values[self::CONFIG_PORT]) || (int) $values[self::CONFIG_PORT] <= 0) {
-            $errors[] = $this->l('Port is invalid.');
+            if ($values[self::CONFIG_PORT] === '') {
+                $errors[] = $this->l('Port is required when no Unix socket path is set.');
+            } elseif (!Validate::isUnsignedInt($values[self::CONFIG_PORT]) || (int) $values[self::CONFIG_PORT] <= 0) {
+                $errors[] = $this->l('Port is invalid.');
+            }
         }
 
         if ($values[self::CONFIG_DATABASE] !== '' && (!Validate::isUnsignedInt($values[self::CONFIG_DATABASE]) || (int) $values[self::CONFIG_DATABASE] > 15)) {
@@ -327,6 +357,7 @@ class Rediscache extends Module
 
     protected function updateConfigurationValues(array $values)
     {
+        Configuration::updateValue(self::CONFIG_SOCKET, $values[self::CONFIG_SOCKET]);
         Configuration::updateValue(self::CONFIG_IP, $values[self::CONFIG_IP]);
         Configuration::updateValue(self::CONFIG_PORT, $values[self::CONFIG_PORT]);
         Configuration::updateValue(self::CONFIG_PASSWORD, $values[self::CONFIG_PASSWORD]);
@@ -336,6 +367,7 @@ class Rediscache extends Module
         if ((int) $values[self::CONFIG_ENABLE] === 1) {
             Configuration::updateValue('PS_CACHING_SYSTEM', 'CacheRedis');
             Configuration::updateValue('PS_CACHE_ENABLED', 1);
+            $this->updateParametersFile(true);
         } else {
             $this->disableRedisCaching();
         }
@@ -347,14 +379,39 @@ class Rediscache extends Module
     {
         if (Configuration::get('PS_CACHING_SYSTEM') === 'CacheRedis') {
             Configuration::updateValue('PS_CACHE_ENABLED', 0);
+            Configuration::updateValue('PS_CACHING_SYSTEM', 'CacheFs');
+            $this->updateParametersFile(false);
         }
 
         return true;
     }
 
+    public function updateParametersFile($enable)
+    {
+        $parametersFilepath = _PS_ROOT_DIR_ . '/app/config/parameters.php';
+
+        if (!file_exists($parametersFilepath) || !is_writable($parametersFilepath)) {
+            return true;
+        }
+
+        $parameters = require $parametersFilepath;
+
+        if (!is_array($parameters) || !isset($parameters['parameters']) || !is_array($parameters['parameters'])) {
+            return true;
+        }
+
+        $parameters['parameters']['ps_caching'] = $enable ? 'CacheRedis' : 'CacheFs';
+        $parameters['parameters']['ps_cache_enable'] = $enable;
+
+        $content = sprintf('<?php return %s;', var_export($parameters, true));
+
+        return (bool) file_put_contents($parametersFilepath, $content);
+    }
+
     protected function setDefaultConfiguration()
     {
         $defaults = array(
+            self::CONFIG_SOCKET => '',
             self::CONFIG_IP => '127.0.0.1',
             self::CONFIG_PORT => '6379',
             self::CONFIG_PASSWORD => '',
@@ -375,6 +432,7 @@ class Rediscache extends Module
     {
         $keys = array(
             self::CONFIG_ENABLE,
+            self::CONFIG_SOCKET,
             self::CONFIG_IP,
             self::CONFIG_PORT,
             self::CONFIG_PASSWORD,
@@ -473,8 +531,8 @@ class Rediscache extends Module
     {
         $targetPath = $this->getInstalledOverridePath();
 
-        if (file_exists($targetPath)) {
-            @unlink($targetPath);
+        if (file_exists($targetPath) && !unlink($targetPath)) {
+            return false;
         }
 
         return $this->refreshClassIndex();
