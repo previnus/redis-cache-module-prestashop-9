@@ -38,7 +38,7 @@ class Rediscache extends Module
     {
         $this->name = 'rediscache';
         $this->tab = 'front_office_features';
-        $this->version = '1.1.0';
+        $this->version = '1.2.0';
         $this->author = 'PrestaHero';
         $this->need_instance = 1;
         $this->bootstrap = true;
@@ -386,7 +386,7 @@ class Rediscache extends Module
         return true;
     }
 
-    protected function updateParametersFile($enable)
+    public function updateParametersFile($enable)
     {
         $parametersFilepath = _PS_ROOT_DIR_ . '/app/config/parameters.php';
 
