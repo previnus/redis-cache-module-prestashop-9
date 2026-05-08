@@ -36,6 +36,7 @@ class RCRedisCache extends Cache
     protected $password;
     protected $database = 0;
     protected $life_time;
+    protected $socket = '';
 
     protected $blacklist = array(
         'cart',
@@ -79,19 +80,29 @@ class RCRedisCache extends Cache
         $password = Configuration::get(Rediscache::CONFIG_PASSWORD);
         $database = Configuration::get(Rediscache::CONFIG_DATABASE);
         $lifetime = Configuration::get(Rediscache::CONFIG_LIFETIME);
+        $socket = Configuration::get(Rediscache::CONFIG_SOCKET);
 
         $this->ip = $ip !== false ? (string) $ip : '127.0.0.1';
         $this->port = $port !== false ? (string) $port : '6379';
         $this->password = $password !== false ? (string) $password : '';
         $this->database = $database !== false ? (int) $database : 0;
         $this->life_time = Validate::isUnsignedInt($lifetime) && (int) $lifetime > 0 ? (int) $lifetime * 24 * 60 * 60 : null;
+        $this->socket = ($socket !== false && $socket !== '') ? (string) $socket : '';
 
-        $configs = array(
-            'scheme' => 'tcp',
-            'host' => $this->ip,
-            'port' => (int) $this->port,
-            'database' => (int) $this->database,
-        );
+        if ($this->socket !== '') {
+            $configs = array(
+                'scheme' => 'unix',
+                'path' => $this->socket,
+                'database' => (int) $this->database,
+            );
+        } else {
+            $configs = array(
+                'scheme' => 'tcp',
+                'host' => $this->ip,
+                'port' => (int) $this->port,
+                'database' => (int) $this->database,
+            );
+        }
 
         if ($this->password !== '') {
             $configs['password'] = $this->password;
@@ -229,18 +240,26 @@ class RCRedisCache extends Cache
         return true;
     }
 
-    public static function ping($ip, $port, $password = null, $database = 0)
+    public static function ping($ip, $port, $password = null, $database = 0, $socket = '')
     {
-        if (!$ip || !$port || !Validate::isUnsignedInt($port) || !Validate::isUnsignedInt($database) || (int) $database < 0 || (int) $database > 15) {
-            return false;
-        }
-
         try {
-            $parameters = array(
-                'host' => $ip,
-                'port' => (int) $port,
-                'database' => (int) $database,
-            );
+            if ($socket !== '') {
+                $parameters = array(
+                    'scheme' => 'unix',
+                    'path' => $socket,
+                    'database' => (int) $database,
+                );
+            } else {
+                if (!$ip || !$port || !Validate::isUnsignedInt($port) || !Validate::isUnsignedInt($database) || (int) $database < 0 || (int) $database > 15) {
+                    return false;
+                }
+
+                $parameters = array(
+                    'host' => $ip,
+                    'port' => (int) $port,
+                    'database' => (int) $database,
+                );
+            }
 
             if ($password !== null && $password !== '') {
                 $parameters['password'] = $password;
