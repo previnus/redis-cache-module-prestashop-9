@@ -28,6 +28,13 @@ use Predis\Client;
 
 class RCRedisCache extends Cache
 {
+    const CONFIG_IP       = 'REDISCACHE_IP';
+    const CONFIG_PORT     = 'REDISCACHE_PORT';
+    const CONFIG_PASSWORD = 'REDISCACHE_PASSWORD';
+    const CONFIG_DATABASE = 'REDISCACHE_DATABASE';
+    const CONFIG_LIFETIME = 'REDISCACHE_LIFETIME';
+    const CONFIG_SOCKET   = 'REDISCACHE_SOCKET';
+
     /** @var Client */
     protected $redis;
 
@@ -75,12 +82,12 @@ class RCRedisCache extends Cache
             return;
         }
 
-        $ip = Configuration::get(Rediscache::CONFIG_IP);
-        $port = Configuration::get(Rediscache::CONFIG_PORT);
-        $password = Configuration::get(Rediscache::CONFIG_PASSWORD);
-        $database = Configuration::get(Rediscache::CONFIG_DATABASE);
-        $lifetime = Configuration::get(Rediscache::CONFIG_LIFETIME);
-        $socket = Configuration::get(Rediscache::CONFIG_SOCKET);
+        $ip = Configuration::get(self::CONFIG_IP);
+        $port = Configuration::get(self::CONFIG_PORT);
+        $password = Configuration::get(self::CONFIG_PASSWORD);
+        $database = Configuration::get(self::CONFIG_DATABASE);
+        $lifetime = Configuration::get(self::CONFIG_LIFETIME);
+        $socket = Configuration::get(self::CONFIG_SOCKET);
 
         $this->ip = $ip !== false ? (string) $ip : '127.0.0.1';
         $this->port = $port !== false ? (string) $port : '6379';
