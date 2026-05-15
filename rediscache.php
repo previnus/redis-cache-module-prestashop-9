@@ -558,6 +558,10 @@ class Rediscache extends Module
             @unlink($classIndexFile);
         }
 
+        foreach (glob(_PS_ROOT_DIR_ . '/var/cache/*/*ProjectContainer.php') ?: array() as $containerFile) {
+            @unlink($containerFile);
+        }
+
         return true;
     }
 }
